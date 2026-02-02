@@ -1,0 +1,28 @@
+#######################################
+# Snakemake SLURM profile (Narval)
+# Account: def-barrett
+#######################################
+
+executor: slurm
+
+# SLURM job naming
+jobname: "{rule}.{wildcards}"
+
+jobs: 200
+latency-wait: 60
+restart-times: 2
+
+printshellcmds: true
+rerun-incomplete: true
+keep-going: true
+show-failed-logs: true
+
+use-envmodules: true
+use-conda: false
+
+slurm:
+  account: def-barrett
+  output: logs/slurm/%x.%j.out
+  error:  logs/slurm/%x.%j.err
+
+max-status-checks-per-second: 10

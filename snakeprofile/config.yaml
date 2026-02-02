@@ -1,0 +1,76 @@
+###########################
+##        POOLS          ##
+###########################
+# Update the paths (data/reads/...) to wherever your FASTQs actually live.
+
+pools:
+  Pool01:
+    r1: reads/merge_lane/Pool01_R1.fastq.gz
+    r2: reads/merge_lane/Pool01_R2.fastq.gz
+  Pool02:
+    r1: reads/merge_lane/Pool02_R1.fastq.gz
+    r2: reads/merge_lane/Pool02_R2.fastq.gz
+
+
+###########################
+##     RESOURCE SETUP    ##
+###########################
+# Adjust threads to suit your cluster allocation / profile defaults.
+
+set-resources:
+  genome_prep:
+    threads: 10
+
+  fast_qc:
+    threads: 6
+
+  multi_qc:
+    threads: 2
+
+  trim_reads:
+    threads: 8
+
+  trim_qc:
+    threads: 6
+
+  trim_multi_qc:
+    threads: 2
+
+  align:
+    threads: 16
+
+  rm_dupes:
+    threads: 8
+
+  mpileup:
+    threads: 8
+
+  id_indels:
+    threads: 2
+
+  sync:
+    threads: 8
+
+  rm_indels:
+    threads: 2
+
+  chrom_filter:
+    threads: 1
+
+  rename_sync:
+    threads: 1
+
+  read_depth:
+    threads: 2
+
+  fst_genome:
+    threads: 8
+
+  fst_sliding:
+    threads: 8
+
+  diversity_genome:
+    threads: 8
+
+  diversity_sliding:
+    threads: 8
