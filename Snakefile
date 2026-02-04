@@ -43,8 +43,9 @@ RULE_MEM_MB = {
     "multi_qc": 8000,
     "trim_reads": 32000,
     "trim_qc": 8000,
-    "trim_multi_qc": 24000,
-    "align": 64000,
+    "trim_multi_qc": 8000,
+    "align": 96000,
+    "sort": 128000,
     "rm_dupes": 24000,
     "mpileup": 32000,
     "sync": 16000,
@@ -57,11 +58,12 @@ RULE_MEM_MB = {
 RULE_TIME = {
     "genome_prep": "2:00:00",
     "fast_qc": "4:00:00",
-    "multi_qc": "2:00:00",
-    "trim_reads": "2:00:00",
+    "multi_qc": "1:00:00",
+    "trim_reads": "4:00:00",
     "trim_qc": "6:00:00",
-    "trim_multi_qc": "2:00:00",
-    "align": "12:00:00",
+    "trim_multi_qc": "1:00:00",
+    "align": "16:00:00",
+    "sort": "6:00:00",
     "rm_dupes": "12:00:00",
     "mpileup": "12:00:00",
     "sync": "12:00:00",
@@ -83,7 +85,7 @@ rule all:
 
     # QC reports
     "results/multi_qc/multiqc_report.html",
-    "results/trim_multi_qc/multiqc_report.html",
+    "results/trim_multi_qc/trim_multiqc_report.html",
 
     # stats
     "results/fst_genome/fst.csv",
@@ -173,7 +175,7 @@ rule multi_qc:
     "results/logs/multi_qc/multiqc.log"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   threads: config["set-resources"]["multi_qc"]["threads"]
   shell:
     r"""
@@ -227,10 +229,10 @@ rule trim_qc:
     r1 = "results/trim_reads/{pool}_trimmed_R1.fastq.gz",
     r2 = "results/trim_reads/{pool}_trimmed_R2.fastq.gz",
   output:
-    html1 = "results/trim_qc/{pool}_trimmed_R1.html",
-    zip1  = "results/trim_qc/{pool}_trimmed_R1.zip",
-    html2 = "results/trim_qc/{pool}_trimmed_R2.html",
-    zip2  = "results/trim_qc/{pool}_trimmed_R2.zip"
+    html1 = "results/trim_qc/{pool}_trimmed_R1_fastqc.html",
+    zip1  = "results/trim_qc/{pool}_trimmed_R1_fastqc.zip",
+    html2 = "results/trim_qc/{pool}_trimmed_R2_fastqc.html",
+    zip2  = "results/trim_qc/{pool}_trimmed_R2_fastqc.zip"
   log:
     "results/logs/trim_qc/{pool}_qc.log"
   envmodules:
@@ -248,24 +250,24 @@ rule trim_qc:
 ## Trim Multi QC
 rule trim_multi_qc:
   resources: 
-    mem_mb = RULE_MEM_MB["trim_qc"],
-    runtime = hhmmss_to_min(RULE_TIME["trim_qc"])
+    mem_mb = RULE_MEM_MB["trim_multi_qc"],
+    runtime = hhmmss_to_min(RULE_TIME["trim_multi_qc"])
   input:
-    expand("results/trim_qc/{pool}_trimmed_R1.zip", pool=short_names) +
-    expand("results/trim_qc/{pool}_trimmed_R2.zip", pool=short_names)
+    expand("results/trim_qc/{pool}_trimmed_R1_fastqc.zip", pool=short_names) +
+    expand("results/trim_qc/{pool}_trimmed_R2_fastqc.zip", pool=short_names)
   output:
-    report = "results/trim_multi_qc/multiqc_report.html"
+    report = "results/trim_multi_qc/trim_multiqc_report.html"
   log:
     "results/logs/trim_multi_qc/multi_qc.log"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   threads: config["set-resources"]["trim_multi_qc"]["threads"]
   shell:
     r"""
     mkdir -p results/trim_multi_qc results/logs/trim_multi_qc
 
-    apptainer exec ../sif/multiqc.sif multiqc {input} -o results/multi_qc -n multiqc_report.html -f > {log} 2>&1
+    apptainer exec ../sif/multiqc.sif multiqc {input} -o results/trim_multi_qc -n trim_multiqc_report.html -f > {log} 2>&1
     """
 
 
@@ -282,8 +284,7 @@ rule align:
     r2 = "results/trim_reads/{pool}_trimmed_R2.fastq.gz",
     genome = f"{GENOME_DIR}/{GENOME_PREFIX}.fna"
   output:
-    bam = "results/align/{pool}.bam",
-    bai = "results/align/{pool}.bam.bai"
+    bam = "results/align/{pool}.unsorted.bam"
   log:
     "results/logs/align/{pool}.log"
   envmodules:
@@ -291,13 +292,42 @@ rule align:
     "sambamba/1.0.1"
   threads: config["set-resources"]["align"]["threads"]
   params:
-    rg = "@RG\\tID:{pool}\\tSM:{pool}\\tPL:ILLUMINA"
+    rg = "@RG\\tID:{pool}\\tSM:{pool}\\tPL:ILLUMINA",
   shell:
     r"""
     mkdir -p results/align results/logs/align
     bwa mem -t {threads} -R '{params.rg}' {input.genome} {input.r1} {input.r2} 2> {log} | \
-    sambamba view -S -f bam /dev/stdin | \
-    sambamba sort -t {threads} -o {output.bam} /dev/stdin
+    sambamba view -S -f bam -t {threads} /dev/stdin > {output.bam}
+    """
+
+###########################
+##    SORT AND INDEX     ##
+###########################
+
+rule sort_index:
+  resources:
+    mem_mb = RULE_MEM_MB["sort"],
+    runtime = hhmmss_to_min(RULE_TIME["sort"])
+  input:
+    bam = "results/align/{pool}.unsorted.bam"
+  output:
+    bam = "results/align/{pool}.bam",
+    bai = "results/align/{pool}.bam.bai"
+  wildcard_constraints:
+    pool = r"[^\.]+"
+  log:
+    "results/logs/sort/{pool}.log"
+  envmodules:
+    "sambamba/1.0.1"
+  threads: config["set-resources"]["sort"]["threads"]
+  params:
+    sort_mem_mb = lambda wc, resources, threads:
+      int(resources.mem_mb / threads * 0.7)
+  shell:
+    r"""
+    mkdir -p results/logs/sort
+
+    sambamba sort {input.bam} -t {threads} -m {params.sort_mem_mb}M -o {output.bam} /dev/stdin
     sambamba index -t {threads} {output.bam}
     """
 
@@ -390,9 +420,9 @@ rule id_indels:
   log:
     "results/logs/id_indels/id_indels.log"
   envmodules:
-    "perl/5.36.1"
+    "StdEnv/2023",
+    "apptainer/1.4.5"
   params:
-    script_path = "../popoolation2/indel_filtering/identify-indel-regions.pl",
     indel_window = 5,
     min_count = 2
   threads: config["set-resources"]["id_indels"]["threads"]
@@ -400,7 +430,7 @@ rule id_indels:
     r"""
     mkdir -p results/id_indels results/logs/id_indels
 
-    perl {params.script_path} \
+    apptainer exec ../sif/popoolation2.sif identify-indel-regions.pl \
       --input {input.mpileup} \
       --output {output.indels} \
       --indel-window {params.indel_window} \
@@ -421,7 +451,7 @@ rule sync:
     sync = "results/sync/sync.sync"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   log:
     "results/logs/sync/sync.log"
   params:
@@ -456,15 +486,14 @@ rule rm_indels:
   log:
     "results/logs/rm_indels/rm_indels.log"
   envmodules:
-    "perl/5.36.1"
-  params:
-    script_path = "../popoolation2/indel_filtering/filter-sync-by-gtf.pl"
+    "StdEnv/2023",
+    "apptainer/1.4.5"
   threads: config["set-resources"]["rm_indels"]["threads"]
   shell:
     r"""
     mkdir -p results/rm_indels results/logs/rm_indels
 
-    perl {params.script_path} \
+    apptainer exec ../sif/popoolation2.sif filter-sync-by-gtf.pl \
       --gtf {input.indels} \
       --input {input.sync} \
       --output {output.sync} \
@@ -580,7 +609,7 @@ rule fst_genome:
     fst_file = "results/fst_genome/fst.csv"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   log:
     "results/logs/fst_genome/fst_genome.log"
   params:
@@ -627,7 +656,7 @@ rule fst_sliding:
     fst_file = "results/fst_sliding/fst.csv"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   log:
     "results/logs/fst_sliding/fst_sliding.log"
   params:
@@ -676,7 +705,7 @@ rule diversity_genome:
     diversity_file = "results/diversity_genome/diversity.csv"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   log:
     "results/logs/diversity_genome/diversity_genome.log"
   params:
@@ -722,7 +751,7 @@ rule diversity_sliding:
     diversity_file = "results/diversity_sliding/diversity.csv"
   envmodules:
     "StdEnv/2023",
-    "apptainer/1.4.3"
+    "apptainer/1.4.5"
   log:
     "results/logs/diversity_sliding/diversity_sliding.log"
   params:

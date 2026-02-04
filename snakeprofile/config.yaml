@@ -37,7 +37,10 @@ set-resources:
     threads: 2
 
   align:
-    threads: 16
+    threads: 24
+
+  sort:
+    threads: 12
 
   rm_dupes:
     threads: 8

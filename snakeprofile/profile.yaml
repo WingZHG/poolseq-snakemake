@@ -6,7 +6,7 @@
 executor: slurm
 
 # SLURM job naming
-jobname: "{rule}.{wildcards}"
+jobname: "{rule}_{wildcards.pool}"
 
 jobs: 200
 latency-wait: 60
