@@ -43,7 +43,10 @@ set-resources:
     threads: 12
 
   rm_dupes:
-    threads: 8
+    threads: 18
+
+  align_stats:
+    threads: 6
 
   mpileup:
     threads: 8

@@ -46,7 +46,8 @@ RULE_MEM_MB = {
     "trim_multi_qc": 8000,
     "align": 96000,
     "sort": 128000,
-    "rm_dupes": 24000,
+    "rm_dupes": 96000,
+    "align_stats": 24000,
     "mpileup": 32000,
     "sync": 16000,
     "fst_genome": 16000,
@@ -65,6 +66,7 @@ RULE_TIME = {
     "align": "16:00:00",
     "sort": "6:00:00",
     "rm_dupes": "12:00:00",
+    "align_stats": "2:00:00",
     "mpileup": "12:00:00",
     "sync": "12:00:00",
     "fst_genome": "12:00:00",
@@ -349,25 +351,47 @@ rule rm_dupes:
   log:
     "results/logs/rm_dupes/{pool}.log"
   envmodules:
-    "picard/3.1.0",
     "sambamba/1.0.1"
   threads: config["set-resources"]["rm_dupes"]["threads"]
   shell:
     r"""
     mkdir -p results/rm_dupes results/logs/rm_dupes
 
-    java -Xmx20g -Xms1g -jar $EBROOTPICARD/picard.jar MarkDuplicates \
-      -I {input.bam} \
-      -O {output.bam} \
-      -M {output.bam}.duplicates.txt \
-      --VALIDATION_STRINGENCY STRICT \
-      --REMOVE_DUPLICATES TRUE \
-      --TAGGING_POLICY All \
-      --REMOVE_SEQUENCING_DUPLICATES TRUE \
-      --SORTING_COLLECTION_SIZE_RATIO 0.1 \
-      2> {log}
+    sambamba markdup \
+      -r \
+      -t {threads} \
+      {input.bam} {output.bam} 2> {log}
 
     sambamba index --nthreads={threads} {output.bam} 2>> {log}
+    """
+
+
+###########################
+##   ALIGNMENT STATS     ##
+###########################
+
+rule align_stats:
+  resources:
+    mem_mb = RULE_MEM_MB["align_stats"],
+    runtime = hhmmss_to_min(RULE_TIME["align_stats"])
+  input:
+    bam = "results/rm_dupes/{pool}.bam",
+    bai = "results/rm_dupes/{pool}.bam.bai"
+  output:
+    txt = "results/stats/{pool}.flagstat.txt"
+  log:
+    "results/logs/stats/{pool}.log"
+  envmodules:
+    "sambamba/1.0.1"
+  threads: config["set-resources"]["align_stats"]["threads"]
+  shell:
+    r"""
+    mkdir -p results/stats results/logs/stats
+
+    sambamba flagstat \
+      -t {threads} \
+      {input.bam} \
+      > {output.txt} 2> {log}
     """
 
 
