@@ -28,6 +28,71 @@ if GENOME_FASTA is None:
 
 GENOME_DIR = "results/genome_prep"
 
+import os
+
+def runtime_from_fastq_buckets(r1, r2):
+    total_gb = (
+        os.path.getsize(r1) +
+        os.path.getsize(r2)
+    ) / 1024**3
+
+    if total_gb <= 60:
+        return 14 * 60
+    elif total_gb <= 80:
+        return 18 * 60
+    elif total_gb <= 100:
+        return 24 * 60
+    elif total_gb <= 120:
+        return 30 * 60
+    else:
+        return 48 * 60
+
+def mem_request_from_bam_buckets(bam):
+    size_gb = os.path.getsize(bam) / 1024**3
+
+    if size_gb <= 40:
+        return 32000      # request 32 GB
+    elif size_gb <= 80:
+        return 64000      # request 64 GB
+    elif size_gb <= 120:
+        return 96000      # request 96 GB
+    elif size_gb <= 160:
+        return 128000     # request 128 GB
+    else:
+        return 250000     # request 160 GB
+
+
+def threads_from_bam_size(bam):
+    size_gb = os.path.getsize(bam) / 1024**3
+
+    if size_gb <= 40:
+        return 7
+    elif size_gb <= 80:
+        return 7
+    elif size_gb <= 120:
+        return 6
+    elif size_gb <= 160:
+        return 4
+    else:
+        return 2
+    
+
+def sort_mem_per_thread_gb(bam):
+    size_gb = os.path.getsize(bam) / 1024**3
+
+    if size_gb <= 40:
+        return 4
+    elif size_gb <= 80:
+        return 6
+    elif size_gb <= 120:
+        return 2
+    elif size_gb <= 160:
+        return 2
+    else:
+        return 2
+
+
+
 #snakemake --profile snakeprofile --config genome=data/genome/sticklebgenome.fna genome_prefix=sticklebgenome all
 
 # Fallbacks for any rule that doesn't set resources explicitly
@@ -44,12 +109,16 @@ RULE_MEM_MB = {
     "trim_reads": 32000,
     "trim_qc": 8000,
     "trim_multi_qc": 8000,
-    "align": 96000,
-    "sort": 128000,
-    "rm_dupes": 96000,
+    "align": 8000,
+    "sort": 112000,
+    "rm_dupes": 200000,
     "align_stats": 24000,
     "mpileup": 32000,
+    "id_indels": 96000,
     "sync": 16000,
+    "rm_indels": 96000,
+    "chrom_filter": 96000,
+    "rename_sync": 8000,
     "fst_genome": 16000,
     "fst_sliding": 16000,
     "diversity_genome": 16000,
@@ -64,11 +133,15 @@ RULE_TIME = {
     "trim_qc": "6:00:00",
     "trim_multi_qc": "1:00:00",
     "align": "16:00:00",
-    "sort": "6:00:00",
-    "rm_dupes": "12:00:00",
-    "align_stats": "2:00:00",
+    "sort": "7:00:00",
+    "rm_dupes": "6:00:00",
+    "align_stats": "1:00:00",
     "mpileup": "12:00:00",
+    "id_indels": "12:00:00",
     "sync": "12:00:00",
+    "rm_indels": "12:00:00",
+    "chrom_filter": "12:00:00",
+    "rename_sync": "1:00:00",
     "fst_genome": "12:00:00",
     "fst_sliding": "12:00:00",
     "diversity_genome": "12:00:00",
@@ -93,7 +166,10 @@ rule all:
     "results/fst_genome/fst.csv",
     "results/diversity_genome/diversity.csv",
     "results/fst_sliding/fst.csv",
-    "results/diversity_sliding/diversity.csv"
+    "results/diversity_sliding/diversity.csv",
+
+     expand("results/stats/{pool}.flagstat.txt", pool=short_names)
+
 
 
 def hhmmss_to_min(s):
@@ -273,34 +349,55 @@ rule trim_multi_qc:
     """
 
 
-###########################
-##      ALIGNMENT        ##
-###########################
-
 rule align:
   resources:
     mem_mb = RULE_MEM_MB["align"],
-    runtime = hhmmss_to_min(RULE_TIME["align"])
+    runtime = lambda wc, input: runtime_from_fastq_buckets(
+        input.r1,
+        input.r2
+    )
+
+
   input:
     r1 = "results/trim_reads/{pool}_trimmed_R1.fastq.gz",
     r2 = "results/trim_reads/{pool}_trimmed_R2.fastq.gz",
     genome = f"{GENOME_DIR}/{GENOME_PREFIX}.fna"
+
   output:
     bam = "results/align/{pool}.unsorted.bam"
+
   log:
     "results/logs/align/{pool}.log"
+
   envmodules:
     "bwa/0.7.18",
     "sambamba/1.0.1"
+
   threads: config["set-resources"]["align"]["threads"]
+
   params:
-    rg = "@RG\\tID:{pool}\\tSM:{pool}\\tPL:ILLUMINA",
+    bwa_threads = lambda wc, threads: max(threads - 2, 1),
+    rg = "@RG\\tID:{pool}\\tSM:{pool}\\tPL:ILLUMINA"
+
   shell:
     r"""
     mkdir -p results/align results/logs/align
-    bwa mem -t {threads} -R '{params.rg}' {input.genome} {input.r1} {input.r2} 2> {log} | \
-    sambamba view -S -f bam -t {threads} /dev/stdin > {output.bam}
+
+    
+    echo "Runtime bucket selected: {resources.runtime} minutes" >> {log}
+    echo "FASTQ sizes:" >> {log}
+    du -h {input.r1} {input.r2} >> {log}
+
+    bwa mem -t {params.bwa_threads} -R '{params.rg}' \
+        {input.genome} {input.r1} {input.r2} 2>> {log} | \
+    sambamba view -S -f bam -t 2 --with-header /dev/stdin -o {output.bam} 2>> {log}
+
+    if [[ ! -s {output.bam} ]]; then
+      echo "Error: Output BAM file is empty."
+      exit 1
+    fi
     """
+
 
 ###########################
 ##    SORT AND INDEX     ##
@@ -308,8 +405,10 @@ rule align:
 
 rule sort_index:
   resources:
-    mem_mb = RULE_MEM_MB["sort"],
+    mem_mb = lambda wc, input: mem_request_from_bam_buckets(input.bam),
     runtime = hhmmss_to_min(RULE_TIME["sort"])
+  threads: 
+    lambda wc, input: threads_from_bam_size(input.bam)
   input:
     bam = "results/align/{pool}.unsorted.bam"
   output:
@@ -320,19 +419,20 @@ rule sort_index:
   log:
     "results/logs/sort/{pool}.log"
   envmodules:
-    "sambamba/1.0.1"
-  threads: config["set-resources"]["sort"]["threads"]
-  params:
-    sort_mem_mb = lambda wc, resources, threads:
-      int(resources.mem_mb / threads * 0.7)
+    "sambamba/1.0.1",
+    "samtools/1.22.1"
+  #threads: config["set-resources"]["sort"]["threads"]
+
   shell:
     r"""
     mkdir -p results/logs/sort
 
-    sambamba sort {input.bam} -t {threads} -m {params.sort_mem_mb}M -o {output.bam} /dev/stdin
-    sambamba index -t {threads} {output.bam}
+    sambamba sort {input.bam} -t {threads} -m 2G -o {output.bam} 2>> {log}
+    sambamba index -t {threads} {output.bam} 2>> {log}
     """
 
+## sambamba sort {input.bam} -t {threads} -m 8G -o {output.bam} 2>> {log}
+## samtools sort {input.bam} -@ {threads} -m 4G -o {output.bam} -O bam 2>> {log}
 
 ###########################
 ##    REMOVE DUPLICATES  ##
@@ -353,16 +453,24 @@ rule rm_dupes:
   envmodules:
     "sambamba/1.0.1"
   threads: config["set-resources"]["rm_dupes"]["threads"]
+  params:
+    sort_mem_gb = lambda wc, input: sort_mem_per_thread_gb(input.bam)
+
   shell:
     r"""
     mkdir -p results/rm_dupes results/logs/rm_dupes
 
-    sambamba markdup \
-      -r \
-      -t {threads} \
-      {input.bam} {output.bam} 2> {log}
+    echo "BAM size: $(du -h {input.bam})" >> {log}
+    echo "Threads: {threads}" >> {log}
+    echo "Memory per thread: {params.sort_mem_gb}G" >> {log}
+    echo "Requested memory: {resources.mem_mb} MB" >> {log}
 
-    sambamba index --nthreads={threads} {output.bam} 2>> {log}
+    sambamba sort {input.bam} \
+        -t {threads} \
+        -m {params.sort_mem_gb}G \
+        -o {output.bam} 2>> {log}
+
+    sambamba index -t {threads} {output.bam} 2>> {log}
     """
 
 
@@ -391,7 +499,7 @@ rule align_stats:
     sambamba flagstat \
       -t {threads} \
       {input.bam} \
-      > {output.txt} 2> {log}
+      > {output.txt} 2>> {log}
     """
 
 
@@ -401,8 +509,8 @@ rule align_stats:
 
 rule mpileup:
   resources:
-    mem_mb = RULE_MEM_MB["sync"],
-    runtime = hhmmss_to_min(RULE_TIME["sync"])
+    mem_mb = RULE_MEM_MB["mpileup"],
+    runtime = hhmmss_to_min(RULE_TIME["mpileup"])
   input:
     bams = expand("results/rm_dupes/{pool}.bam", pool=short_names),
     genome = f"{GENOME_DIR}/{GENOME_PREFIX}.fna",
@@ -428,7 +536,7 @@ rule mpileup:
       -f {input.genome} \
       {input.bams} \
       -o {output.mpileup} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -437,6 +545,9 @@ rule mpileup:
 ###########################
 
 rule id_indels:
+  resources:
+    mem_mb = RULE_MEM_MB["id_indels"],
+    runtime = hhmmss_to_min(RULE_TIME["id_indels"])
   input:
     mpileup = "results/mpileup/all_bams.mpileup"
   output:
@@ -459,7 +570,7 @@ rule id_indels:
       --output {output.indels} \
       --indel-window {params.indel_window} \
       --min-count {params.min_count} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -468,6 +579,9 @@ rule id_indels:
 ###########################
 
 rule sync:
+  resources:
+    mem_mb = RULE_MEM_MB["sync"],
+    runtime = hhmmss_to_min(RULE_TIME["sync"])
   input:
     mpileup = "results/mpileup/all_bams.mpileup",
     genome_fai = f"{GENOME_DIR}/{GENOME_PREFIX}.fna.fai"
@@ -485,7 +599,7 @@ rule sync:
   threads: config["set-resources"]["sync"]["threads"]
   shell:
     r"""
-    mkdir -p {params.out_dir} results/logs/sync
+    mkdir -p results/sync results/logs/sync
 
     apptainer exec ../sif/grenedalf.sif grenedalf sync \
       --pileup-path {input.mpileup} \
@@ -493,7 +607,7 @@ rule sync:
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
       --out-dir {params.out_dir} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -502,6 +616,9 @@ rule sync:
 ###########################
 
 rule rm_indels:
+  resources:
+    mem_mb = RULE_MEM_MB["rm_indels"],
+    runtime = hhmmss_to_min(RULE_TIME["rm_indels"])
   input:
     sync = "results/sync/sync.sync",
     indels = "results/id_indels/indels.gtf"
@@ -521,7 +638,7 @@ rule rm_indels:
       --gtf {input.indels} \
       --input {input.sync} \
       --output {output.sync} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -530,6 +647,9 @@ rule rm_indels:
 ###########################
 
 rule chrom_filter:
+  resources:
+    mem_mb = RULE_MEM_MB["chrom_filter"],
+    runtime = hhmmss_to_min(RULE_TIME["chrom_filter"])
   input:
     sync = "results/rm_indels/rm_indels.sync"
   output:
@@ -557,7 +677,7 @@ rule chrom_filter:
         for (k in pref) if (index($1,k)==1) next;
         print
       }}
-    ' {input.sync} > {output.sync} 2> {log}
+    ' {input.sync} > {output.sync} 2>> {log}
     """
 
 
@@ -566,6 +686,9 @@ rule chrom_filter:
 ###########################
 
 rule rename_sync:
+  resources:
+    mem_mb = RULE_MEM_MB["rename_sync"],
+    runtime = hhmmss_to_min(RULE_TIME["rename_sync"])
   input:
     sync = "results/chrom_filter/filtered_sync.sync",
     bams = expand("results/rm_dupes/{pool}.bam", pool=short_names)
@@ -588,7 +711,7 @@ rule rename_sync:
         next
       }}
       {{ print }}
-    ' {input.sync} > {output.sync} 2> {log}
+    ' {input.sync} > {output.sync} 2>> {log}
     """
 
 
@@ -660,7 +783,7 @@ rule fst_genome:
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
       --out-dir {params.output_dir} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -709,7 +832,7 @@ rule fst_sliding:
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
       --out-dir {params.output_dir} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -755,7 +878,7 @@ rule diversity_genome:
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
       --out-dir {params.output_dir} \
-      2> {log}
+      2>> {log}
     """
 
 
@@ -803,5 +926,5 @@ rule diversity_sliding:
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
       --out-dir {params.output_dir} \
-      2> {log}
+      2>> {log}
     """

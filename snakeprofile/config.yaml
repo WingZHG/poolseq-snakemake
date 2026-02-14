@@ -40,13 +40,13 @@ set-resources:
     threads: 24
 
   sort:
-    threads: 12
+    threads: 7
 
   rm_dupes:
-    threads: 18
+    threads: 2
 
   align_stats:
-    threads: 6
+    threads: 2
 
   mpileup:
     threads: 8
