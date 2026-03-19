@@ -1,11 +1,5 @@
-#######################################
-# Snakemake SLURM profile (Narval)
-# Account: def-barrett
-#######################################
-
 executor: slurm
 
-# SLURM job naming
 jobname: "{rule}_{wildcards.pool}"
 
 jobs: 200
@@ -16,13 +10,15 @@ printshellcmds: true
 rerun-incomplete: true
 keep-going: true
 show-failed-logs: true
+slurm-keep-successful-logs: true
 
 use-envmodules: true
 use-conda: false
 
-slurm:
-  account: def-barrett
-  output: logs/slurm/%x.%j.out
-  error:  logs/slurm/%x.%j.err
+default-resources:
+  - slurm_account=def-barrett
+
+slurm-output: logs/slurm/%x.%j.out
+slurm-error: logs/slurm/%x.%j.err
 
 max-status-checks-per-second: 10

@@ -1,7 +1,7 @@
 ###########################
 ##        POOLS          ##
 ###########################
-# Update the paths (data/reads/...) to wherever your FASTQs actually live.
+# Update the paths (reads/merge_lane/...) to wherever your FASTQs actually live.
 
 pools:
   Pool01:
@@ -10,6 +10,66 @@ pools:
   Pool02:
     r1: reads/merge_lane/Pool02_R1.fastq.gz
     r2: reads/merge_lane/Pool02_R2.fastq.gz
+  Pool03:
+    r1: reads/merge_lane/Pool03_R1.fastq.gz
+    r2: reads/merge_lane/Pool03_R2.fastq.gz
+  Pool04:
+    r1: reads/merge_lane/Pool04_R1.fastq.gz
+    r2: reads/merge_lane/Pool04_R2.fastq.gz
+  Pool05:
+    r1: reads/merge_lane/Pool05_R1.fastq.gz
+    r2: reads/merge_lane/Pool05_R2.fastq.gz
+  Pool06:
+    r1: reads/merge_lane/Pool06_R1.fastq.gz
+    r2: reads/merge_lane/Pool06_R2.fastq.gz
+  Pool07:
+    r1: reads/merge_lane/Pool07_R1.fastq.gz
+    r2: reads/merge_lane/Pool07_R2.fastq.gz
+  Pool08:
+    r1: reads/merge_lane/Pool08_R1.fastq.gz
+    r2: reads/merge_lane/Pool08_R2.fastq.gz
+  Pool09:
+    r1: reads/merge_lane/Pool09_R1.fastq.gz
+    r2: reads/merge_lane/Pool09_R2.fastq.gz
+  Pool10:
+    r1: reads/merge_lane/Pool10_R1.fastq.gz
+    r2: reads/merge_lane/Pool10_R2.fastq.gz
+  Pool11:
+    r1: reads/merge_lane/Pool11_R1.fastq.gz
+    r2: reads/merge_lane/Pool11_R2.fastq.gz
+  Pool12:
+    r1: reads/merge_lane/Pool12_R1.fastq.gz
+    r2: reads/merge_lane/Pool12_R2.fastq.gz
+  Pool13:
+    r1: reads/merge_lane/Pool13_R1.fastq.gz
+    r2: reads/merge_lane/Pool13_R2.fastq.gz
+  Pool14:
+    r1: reads/merge_lane/Pool14_R1.fastq.gz
+    r2: reads/merge_lane/Pool14_R2.fastq.gz
+  Pool15:
+    r1: reads/merge_lane/Pool15_R1.fastq.gz
+    r2: reads/merge_lane/Pool15_R2.fastq.gz
+  Pool16:
+    r1: reads/merge_lane/Pool16_R1.fastq.gz
+    r2: reads/merge_lane/Pool16_R2.fastq.gz
+  Pool17:
+    r1: reads/merge_lane/Pool17_R1.fastq.gz
+    r2: reads/merge_lane/Pool17_R2.fastq.gz
+  Pool18:
+    r1: reads/merge_lane/Pool18_R1.fastq.gz
+    r2: reads/merge_lane/Pool18_R2.fastq.gz
+  Pool19:
+    r1: reads/merge_lane/Pool19_R1.fastq.gz
+    r2: reads/merge_lane/Pool19_R2.fastq.gz
+  Pool20:
+    r1: reads/merge_lane/Pool20_R1.fastq.gz
+    r2: reads/merge_lane/Pool20_R2.fastq.gz
+  Pool21:
+    r1: reads/merge_lane/Pool21_R1.fastq.gz
+    r2: reads/merge_lane/Pool21_R2.fastq.gz
+  Pool22:
+    r1: reads/merge_lane/Pool22_R1.fastq.gz
+    r2: reads/merge_lane/Pool22_R2.fastq.gz
 
 
 ###########################
@@ -40,7 +100,7 @@ set-resources:
     threads: 24
 
   sort:
-    threads: 7
+    threads: 2
 
   rm_dupes:
     threads: 2
@@ -49,7 +109,7 @@ set-resources:
     threads: 2
 
   mpileup:
-    threads: 8
+    threads: 2
 
   id_indels:
     threads: 2
@@ -61,22 +121,37 @@ set-resources:
     threads: 2
 
   chrom_filter:
-    threads: 1
+    threads: 2
+
+  sync_filter:
+    threads: 2
 
   rename_sync:
+    threads: 1
+
+  rename_sync_nf:
     threads: 1
 
   read_depth:
     threads: 2
 
   fst_genome:
-    threads: 8
+    threads: 2
+
+  fst_genome_nf:
+    threads: 2
 
   fst_sliding:
-    threads: 8
+    threads: 2
 
   diversity_genome:
-    threads: 8
+    threads: 2
 
   diversity_sliding:
-    threads: 8
+    threads: 2
+
+
+sync_filter:
+  min_cov: 10
+  max_cov_factor: 2.5
+  min_freq: 0.05

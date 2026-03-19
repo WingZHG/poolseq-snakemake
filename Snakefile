@@ -50,14 +50,14 @@ def runtime_from_fastq_buckets(r1, r2):
 def mem_request_from_bam_buckets(bam):
     size_gb = os.path.getsize(bam) / 1024**3
 
-    if size_gb <= 40:
-        return 32000      # request 32 GB
+    if size_gb <= 60:
+        return 96000      # request 32 GB
     elif size_gb <= 80:
-        return 64000      # request 64 GB
+        return 128000      # request 64 GB
     elif size_gb <= 120:
-        return 96000      # request 96 GB
+        return 168000      # request 96 GB
     elif size_gb <= 160:
-        return 128000     # request 128 GB
+        return 250000     # request 128 GB
     else:
         return 250000     # request 160 GB
 
@@ -66,13 +66,13 @@ def threads_from_bam_size(bam):
     size_gb = os.path.getsize(bam) / 1024**3
 
     if size_gb <= 40:
-        return 7
+        return 2
     elif size_gb <= 80:
-        return 7
+        return 2
     elif size_gb <= 120:
-        return 6
+        return 2
     elif size_gb <= 160:
-        return 4
+        return 2
     else:
         return 2
     
@@ -97,7 +97,7 @@ def sort_mem_per_thread_gb(bam):
 
 # Fallbacks for any rule that doesn't set resources explicitly
 default_resources = {
-    "mem_mb": 24000,
+    "mem_mb": 4000,
     "time": "01:00:00",
 }
 
@@ -109,20 +109,23 @@ RULE_MEM_MB = {
     "trim_reads": 32000,
     "trim_qc": 8000,
     "trim_multi_qc": 8000,
-    "align": 8000,
+    "align": 96000,
     "sort": 112000,
-    "rm_dupes": 200000,
-    "align_stats": 24000,
-    "mpileup": 32000,
-    "id_indels": 96000,
+    "rm_dupes": 124000,
+    "align_stats": 8000,
+    "mpileup": 8000,
+    "id_indels": 48000,
     "sync": 16000,
-    "rm_indels": 96000,
+    "rm_indels": 48000,
     "chrom_filter": 96000,
+    "filter_sync": 16000,
     "rename_sync": 8000,
-    "fst_genome": 16000,
-    "fst_sliding": 16000,
-    "diversity_genome": 16000,
-    "diversity_sliding": 16000,
+    "rename_sync_nf": 8000,
+    "fst_genome": 8000,
+    "fst_genome_nf": 8000,
+    "fst_sliding": 8000,
+    "diversity_genome": 8000,
+    "diversity_sliding": 8000,
 }
 
 RULE_TIME = {
@@ -133,19 +136,22 @@ RULE_TIME = {
     "trim_qc": "6:00:00",
     "trim_multi_qc": "1:00:00",
     "align": "16:00:00",
-    "sort": "7:00:00",
-    "rm_dupes": "6:00:00",
+    "sort": "8:00:00",
+    "rm_dupes": "5:00:00",
     "align_stats": "1:00:00",
-    "mpileup": "12:00:00",
-    "id_indels": "12:00:00",
-    "sync": "12:00:00",
-    "rm_indels": "12:00:00",
+    "mpileup": "36:00:00",
+    "id_indels": "48:00:00",
+    "sync": "18:00:00",
+    "rm_indels": "48:00:00",
     "chrom_filter": "12:00:00",
+    "filter_sync": "36:00:00",
     "rename_sync": "1:00:00",
-    "fst_genome": "12:00:00",
-    "fst_sliding": "12:00:00",
-    "diversity_genome": "12:00:00",
-    "diversity_sliding": "12:00:00",
+    "rename_sync_nf": "1:00:00",
+    "fst_genome": "2:00:00",
+    "fst_genome_nf": "2:00:00",
+    "fst_sliding": "2:00:00",
+    "diversity_genome": "2:00:00",
+    "diversity_sliding": "2:00:00",
 }
 
 
@@ -164,6 +170,7 @@ rule all:
 
     # stats
     "results/fst_genome/fst.csv",
+    "results/fst_genome_nf/fst.csv",
     "results/diversity_genome/diversity.csv",
     "results/fst_sliding/fst.csv",
     "results/diversity_sliding/diversity.csv",
@@ -465,10 +472,10 @@ rule rm_dupes:
     echo "Memory per thread: {params.sort_mem_gb}G" >> {log}
     echo "Requested memory: {resources.mem_mb} MB" >> {log}
 
-    sambamba sort {input.bam} \
+    sambamba markdup {input.bam} \
         -t {threads} \
-        -m {params.sort_mem_gb}G \
-        -o {output.bam} 2>> {log}
+        -r \
+        {output.bam} 2>> {log}
 
     sambamba index -t {threads} {output.bam} 2>> {log}
     """
@@ -483,8 +490,8 @@ rule align_stats:
     mem_mb = RULE_MEM_MB["align_stats"],
     runtime = hhmmss_to_min(RULE_TIME["align_stats"])
   input:
-    bam = "results/rm_dupes/{pool}.bam",
-    bai = "results/rm_dupes/{pool}.bam.bai"
+    bam = "results/align/{pool}.bam",
+    bai = "results/align/{pool}.bam.bai"
   output:
     txt = "results/stats/{pool}.flagstat.txt"
   log:
@@ -643,42 +650,106 @@ rule rm_indels:
 
 
 ###########################
-##      CHROM FILTER     ##
+##     SYNC FILTER       ##
 ###########################
 
-rule chrom_filter:
+rule filter_sync:
   resources:
-    mem_mb = RULE_MEM_MB["chrom_filter"],
-    runtime = hhmmss_to_min(RULE_TIME["chrom_filter"])
+    mem_mb = RULE_MEM_MB["filter_sync"],
+    runtime = hhmmss_to_min(RULE_TIME["filter_sync"])
   input:
     sync = "results/rm_indels/rm_indels.sync"
   output:
-    sync = "results/chrom_filter/filtered_sync.sync"
+    sync = "results/sync_filtered/sync.filtered.sync"
   log:
-    "results/logs/chrom_filter/chrom_filter.log"
+    "results/logs/sync_filter/sync_filter.log"
   params:
-    excl_csv = lambda wc: ",".join(config.get("chrom_filter", {}).get("exclude_contigs", [])),
-    pref_csv = lambda wc: ",".join(config.get("chrom_filter", {}).get("exclude_prefixes", ["NW_"]))
+    min_cov   = lambda wc: config["sync_filter"]["min_cov"],
+    max_factor= lambda wc: config["sync_filter"]["max_cov_factor"],
+    min_freq  = lambda wc: config["sync_filter"]["min_freq"]
   shell:
     r"""
-    mkdir -p results/chrom_filter results/logs/chrom_filter
+    mkdir -p results/sync_filtered results/logs/sync_filter
 
-    awk -v excl_list="{params.excl_csv}" -v pref_list="{params.pref_csv}" '
-      BEGIN {{
-        n = split(excl_list, a, ",");
-        for (i=1; i<=n; i++) if (a[i]!="") bad[a[i]] = 1;
+    echo "Calculating per-pool mean coverage..." > {log}
 
-        m = split(pref_list, p, ",");
-        for (j=1; j<=m; j++) if (p[j]!="") pref[p[j]] = 1;
-      }}
-      NR == 1 {{ print; next }}
+    ##################################################
+    # compute mean coverage per pool column
+    ##################################################
+    awk -F'\t' '
+    {{
+      for(i=4;i<=NF;i++)
       {{
-        if ($1 in bad) next;
-        for (k in pref) if (index($1,k)==1) next;
-        print
+        split($i,a,":")
+        cov=a[1]+a[2]+a[3]+a[4]
+        sum[i]+=cov
+        n[i]++
       }}
+    }}
+    END{{
+      for(i=4;i<=NF;i++)
+        print sum[i]/n[i]
+    }}
+    ' {input.sync} > results/sync_filtered/pool_means.txt
+
+    ##################################################
+    # convert means → per-pool max coverage thresholds
+    ##################################################
+    awk -v f={params.max_factor} '{{{{print int($1*f)}}}}' \
+    results/sync_filtered/pool_means.txt \
+    > results/sync_filtered/pool_max.txt
+
+    echo "Per-pool mean coverages:" >> {log}
+    cat results/sync_filtered/pool_means.txt >> {log}
+
+    echo "Per-pool max thresholds:" >> {log}
+    cat results/sync_filtered/pool_max.txt >> {log}
+
+    ##################################################
+    # filtering
+    ##################################################
+    awk -F'\t' \
+        -v mincov={params.min_cov} \
+        -v minfreq={params.min_freq} \
+        -v maxfile="results/sync_filtered/pool_max.txt" '
+    BEGIN{{
+      idx=4
+      while((getline line < maxfile)>0){{
+        maxcov[idx]=line
+        idx++
+      }}
+    }}
+    {{
+      validPools=0
+      polymorphic=0
+
+      for(i=4;i<=NF;i++)
+      {{
+        split($i,a,":")
+        cov=a[1]+a[2]+a[3]+a[4]
+
+        if(cov < mincov || cov > maxcov[i])
+          continue
+
+        validPools++
+
+        max=a[1]
+        if(a[2]>max) max=a[2]
+        if(a[3]>max) max=a[3]
+        if(a[4]>max) max=a[4]
+
+        if((cov-max)/cov >= minfreq)
+          polymorphic=1
+      }}
+
+      if((validPools >= (0.8*(NF-3))) && polymorphic)
+        print
+    }}
     ' {input.sync} > {output.sync} 2>> {log}
+
+    echo "Filtering complete." >> {log}
     """
+
 
 
 ###########################
@@ -690,7 +761,7 @@ rule rename_sync:
     mem_mb = RULE_MEM_MB["rename_sync"],
     runtime = hhmmss_to_min(RULE_TIME["rename_sync"])
   input:
-    sync = "results/chrom_filter/filtered_sync.sync",
+    sync = "results/sync_filtered/sync.filtered.sync",
     bams = expand("results/rm_dupes/{pool}.bam", pool=short_names)
   output:
     sync = "results/rename_sync/sync_final.sync"
@@ -698,21 +769,23 @@ rule rename_sync:
     "results/logs/rename_sync/rename_sync.log"
   threads: config["set-resources"]["rename_sync"]["threads"]
   shell:
-    r"""
-    mkdir -p results/rename_sync results/logs/rename_sync
+      r"""
+      mkdir -p results/rename_sync results/logs/rename_sync
 
-    new_headers=$(printf "%s\n" {input.bams} | sed 's:.*/::; s/\.bam$//' | paste -sd '\t')
+      new_headers=$(printf "%s\n" \
+        BA_PTL BA_KAH BA_BWE BA_BUN BA_RSW BA_MIK-UP BA_SEB BA_NJR BA_ISW BA_BIH \
+        BA_ISE BN_NJR BN_MIK-UP BN_KAH BN_BIH BN_ISE BN_SEB BN_DPL BN_ISW BN_RSW \
+        BA_MIK_LOW BN_MIK_LOW | paste -sd '\t')
 
-    awk -v newh="$new_headers" '
-      BEGIN {{OFS="\t"}}
-      NR==1 {{
-        fixed = $1 OFS $2 OFS $3
-        print fixed OFS newh
-        next
-      }}
-      {{ print }}
-    ' {input.sync} > {output.sync} 2>> {log}
-    """
+      awk -v newh="$new_headers" '
+        BEGIN {{
+          OFS="\t"
+          print "#chr","pos","ref",newh
+        }}
+        {{ print }}
+      ' {input.sync} > {output.sync} 2>> {log}
+      """
+
 
 
 ###########################
@@ -922,6 +995,87 @@ rule diversity_sliding:
       --filter-sample-min-count {params.min_count} \
       --filter-sample-min-read-depth {params.min_depth} \
       --filter-sample-max-read-depth {params.max_depth} \
+      --pool-sizes {params.pool_sizes} \
+      --threads {threads} \
+      --reference-genome-fai {input.genome_fai} \
+      --out-dir {params.output_dir} \
+      2>> {log}
+    """
+
+
+###########################
+##       RENAME SYNC     ##
+###########################
+
+rule rename_sync_nf:
+  resources:
+    mem_mb = RULE_MEM_MB["rename_sync_nf"],
+    runtime = hhmmss_to_min(RULE_TIME["rename_sync_nf"])
+  input:
+    sync = "results/rm_indels/rm_indels.sync",
+    bams = expand("results/rm_dupes/{pool}.bam", pool=short_names)
+  output:
+    sync = "results/rename_sync_nf/sync_final.sync"
+  log:
+    "results/logs/rename_sync_nf/rename_sync_nf.log"
+  threads: config["set-resources"]["rename_sync_nf"]["threads"]
+  shell:
+      r"""
+      mkdir -p results/rename_sync_nf results/logs/rename_sync_nf
+
+      new_headers=$(printf "%s\n" \
+        BA_PTL BA_KAH BA_BWE BA_BUN BA_RSW BA_MIK-UP BA_SEB BA_NJR BA_ISW BA_BIH \
+        BA_ISE BN_NJR BN_MIK-UP BN_KAH BN_BIH BN_ISE BN_SEB BN_DPL BN_ISW BN_RSW \
+        BA_MIK_LOW BN_MIK_LOW | paste -sd '\t')
+
+      awk -v newh="$new_headers" '
+        BEGIN {{
+          OFS="\t"
+          print "#chr","pos","ref",newh
+        }}
+        NR>1 {{ print }}
+      ' {input.sync} > {output.sync} 2>> {log}
+      """
+
+
+###########################
+##      GENOME-WIDE FST   ##
+###########################
+
+rule fst_genome_nf:
+  resources:
+    mem_mb = RULE_MEM_MB["fst_genome_nf"],
+    runtime = hhmmss_to_min(RULE_TIME["fst_genome_nf"])
+  input:
+    sync = "results/rename_sync_nf/sync_final.sync",
+    genome_fai = f"{GENOME_DIR}/{GENOME_PREFIX}.fna.fai"
+  output:
+    fst_file = "results/fst_genome_nf/fst.csv"
+  envmodules:
+    "StdEnv/2023",
+    "apptainer/1.4.5"
+  log:
+    "results/logs/fst_genome_nf/fst_genome_nf.log"
+  params:
+    #grenedalf_path = "/home/eckertl/software/grenedalf/bin/grenedalf",
+    output_dir = "results/fst_genome_nf",
+    min_count = 2,
+    min_depth = 4,
+    max_depth = 200,
+    pool_sizes = POOL_SIZES
+  threads: config["set-resources"]["fst_genome_nf"]["threads"]
+  shell:
+    r"""
+    mkdir -p {params.output_dir} results/logs/fst_genome_nf
+
+    apptainer exec ../sif/grenedalf.sif grenedalf fst \
+      --sync-path {input.sync} \
+      --window-type genome \
+      --window-average-policy valid-loci \
+      --filter-sample-min-count {params.min_count} \
+      --filter-sample-min-read-depth {params.min_depth} \
+      --filter-sample-max-read-depth {params.max_depth} \
+      --method unbiased-hudson \
       --pool-sizes {params.pool_sizes} \
       --threads {threads} \
       --reference-genome-fai {input.genome_fai} \
